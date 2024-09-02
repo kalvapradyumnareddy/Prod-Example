@@ -1,0 +1,92 @@
+trigger: none
+parameters:
+  - name: environment
+    type: string
+    default: 'development'
+    values:
+      - development
+      - staging
+      - production
+      - preprod
+  - name: Branch
+    type: string
+    default: Dev
+    values:
+      - main
+      - Dev
+      - QA
+      - Hotfix
+  - name: VariableGroup
+    type: string
+    default: Dev
+    values:
+      - Prod
+      - PreProd
+      - Qa
+      - Dev
+variables:
+ - group: 'App1'
+
+stages:
+  - stage: Build
+    displayName: BuildImage
+    jobs:
+      - job: Build
+        displayName: Build
+        pool:
+          vmImage: ubuntu
+        steps:
+
+        - task: SonarQubeAnalyze@6
+          inputs:
+            jdkversion: 'JAVA_HOME_17_X64'
+        
+        - task: Maven@4
+          inputs:
+            mavenPomFile: 'pom.xml'
+            publishJUnitResults: true
+            testResultsFiles: '**/surefire-reports/TEST-*.xml'
+            javaHomeOption: 'JDKVersion'
+            mavenVersionOption: 'Default'
+            mavenAuthenticateFeed: false
+            effectivePomSkip: false
+            sonarQubeRunAnalysis: false
+        - task: Docker@2
+          inputs:
+            containerRegistry: 'test'
+            repository: 'test'
+            command: 'buildAndPush'
+            Dockerfile: '**/Dockerfile'
+        - task: Bash@3
+          inputs:
+            targetType: 'inline'
+            script: 'trivy image --severity HIGH,CRITICAL $(imageRepo):$(tag)'
+        - task: PublishPipelineArtifact@1
+          inputs:
+            targetPath: '$(Pipeline.Workspace)/s/kubernetes'
+            artifact: 'manifests'
+            publishLocation: 'pipeline'
+  - stage: Deploy
+    displayName: Deploy
+    jobs:
+      - job: 
+    
+        steps:
+        - task: DownloadPipelineArtifact@2
+          inputs:
+            buildType: 'current'
+            artifactName: 'manifests'
+            targetPath: '$(Pipeline.Workspace)'
+        - task: KubernetesManifest@1
+          inputs:
+            action: 'deploy'
+            connectionType: 'azureResourceManager'
+            azureSubscriptionConnection: 'MCAPS-Support-REQ-89475-2024-v-lkudkyal(bc17c580-d5bc-4139-8e6a-945b36f4a37b)'
+            azureResourceGroup: 'laxmi_rg'
+            kubernetesCluster: 'k8'
+            useClusterAdmin: true
+            namespace: 'default'
+            manifests: '$(Pipeline.Workspace)/manifests/deployment.yml                 $(Pipeline.Workspace)/manifests/service.yml'
+            containers: '$(acrdevurl)/$(imageRepo):$(tag)'
+        
+    
